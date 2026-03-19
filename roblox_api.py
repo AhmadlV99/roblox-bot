@@ -17,26 +17,40 @@ class RobloxAPI:
         if proxies:
             self.session.proxies = proxies
     
-    def get_csrf_token(self):
-        """Get CSRF token from Roblox"""
+    def get_csrf_token(self, roblosecurity_cookie=None):
+        """Get CSRF token from Roblox using logout endpoint"""
         try:
-            # First request to get CSRF token
+            # Set up headers for CSRF token request
+            headers = Config.get_headers()
+            if roblosecurity_cookie:
+                headers["Cookie"] = f".ROBLOSECURITY={roblosecurity_cookie}"
+            
+            # Make POST request to logout endpoint
             response = self.session.post(
                 "https://auth.roblox.com/v2/logout",
-                headers=self.headers
+                headers=headers,
+                timeout=10
             )
+            
+            # CSRF token is returned in headers even on 403 error
             if "x-csrf-token" in response.headers:
                 self.csrf_token = response.headers["x-csrf-token"]
                 logger.info("CSRF token obtained successfully")
                 return True
+            else:
+                logger.error("CSRF token not found in response headers")
+                logger.debug(f"Response headers: {response.headers}")
+                return False
+                
         except Exception as e:
             logger.error(f"Failed to get CSRF token: {e}")
-        return False
+            return False
     
     def authenticate(self, username, password):
-        """Authenticate with Roblox"""
+        """Authenticate with Roblox using username/password"""
+        # Get CSRF token first (this is required for login)
         if not self.get_csrf_token():
-            logger.error("Could not obtain CSRF token")
+            logger.error("Could not obtain CSRF token for authentication")
             return False
         
         # Update headers with CSRF token
@@ -58,8 +72,8 @@ class RobloxAPI:
             )
             
             if response.status_code == 200:
-                # Check if account data is in response
-                if 'userId' in response.text:
+                # Check if login was successful
+                if 'userId' in response.text or 'displayName' in response.text:
                     logger.info(f"Successfully authenticated as {username}")
                     return True
             elif response.status_code == 403:
@@ -76,15 +90,27 @@ class RobloxAPI:
         
         return False
     
+    def authenticate_with_cookie(self, roblosecurity_cookie):
+        """Authenticate with Roblox using .ROBLOSECURITY cookie"""
+        # Get CSRF token using the cookie
+        if not self.get_csrf_token(roblosecurity_cookie):
+            logger.error("Could not obtain CSRF token with cookie")
+            return False
+        
+        # Update session with cookie
+        self.session.cookies[".ROBLOSECURITY"] = roblosecurity_cookie
+        
+        # Update headers with CSRF token
+        self.headers = Config.get_headers(self.csrf_token)
+        
+        logger.info("Authenticated with .ROBLOSECURITY cookie")
+        return True
+    
     def handle_captcha_login(self, username, password):
         """Handle login with CAPTCHA solving"""
-        # This is a simplified version - actual implementation would need
-        # to extract sitekey and page_url from Roblox's response
         logger.info(f"Attempting CAPTCHA solve for {username}")
-        
-        # Note: Roblox CAPTCHA solving requires extracting the sitekey
-        # from the response and using 2captcha to solve it
-        # This is a placeholder for the actual implementation
+        # This would require extracting sitekey from Roblox response
+        # and using 2captcha to solve it
         return False
     
     def follow_user(self, user_id, roblosecurity_cookie=None):
